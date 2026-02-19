@@ -1,26 +1,18 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <title>Red Runner 3D Box</title>
-    <style>
-        body {
-            margin: 0;
-            overflow: hidden;
-            background: #1a0000;
-        }
-        #ui {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            color: white;
-            font-size: 24px;
-            font-family: Arial;
-        }
-    </style>
+<meta charset="UTF-8">
+<title>Red Runner 3D</title>
+<style>
+ body { margin:0; overflow:hidden; background:#200; }
+ #ui { position:absolute; top:20px; left:20px; color:white; font-size:24px; }
+ #menu { position:absolute; top:40%; width:100%; text-align:center; color:white; font-size:28px; }
+</style>
 </head>
 <body>
+
 <div id="ui">Score: <span id="score">0</span></div>
+<div id="menu">PRESS ENTER TO START</div>
 
 <script type="module">
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js";
@@ -28,7 +20,7 @@ import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/
 
 let scene = new THREE.Scene();
 let camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-let renderer = new THREE.WebGLRenderer({ antialias: true });
+let renderer = new THREE.WebGLRenderer();
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
@@ -38,70 +30,111 @@ let light = new THREE.DirectionalLight(0xffffff, 1);
 light.position.set(5, 10, 5);
 scene.add(light);
 
-let mixer;
-let player;
+let mixer, player;
 let clock = new THREE.Clock();
 let score = 0;
 let isDead = false;
+let started = false;
+let obstacles = [];
+let velocityY = 0;
 
 const loader = new GLTFLoader();
 loader.load("player.glb", (gltf) => {
     player = gltf.scene;
-    player.scale.set(1.2, 1.2, 1.2);
+    player.position.set(0,0,0);
     scene.add(player);
 
     mixer = new THREE.AnimationMixer(player);
-    const clips = gltf.animations;
 
-    player.animRun = mixer.clipAction(clips[0]);
-    player.animJump = mixer.clipAction(clips[1]);
-    player.animDead = mixer.clipAction(clips[2]);
-
-    player.animRun.play();
+    player.animRun  = mixer.clipAction(gltf.animations[0]);
+    player.animJump = mixer.clipAction(gltf.animations[1]);
+    player.animDead = mixer.clipAction(gltf.animations[2]);
 });
 
 camera.position.z = 5;
 camera.position.y = 2;
 
-let obstacles = [];
-function spawnObstacle() {
-    let geo = new THREE.BoxGeometry(1, 1, 1);
-    let mat = new THREE.MeshStandardMaterial({ color: 0xaa0000 });
-    let obs = new THREE.Mesh(geo, mat);
-    obs.position.set(10, 0.5, 0);
-    scene.add(obs);
-    obstacles.push(obs);
-}
-setInterval(spawnObstacle, 2000);
+// ---------------------------------------------------
+// GAME FLOW
+// ---------------------------------------------------
+function startGame() {
+    started = true;
+    isDead = false;
+    score = 0;
+    document.getElementById("score").innerText = 0;
+    document.getElementById("menu").style.display = "none";
 
-let velocityY = 0;
+    player.position.set(0,0,0);
+    velocityY = 0;
+
+    obstacles.forEach(o => scene.remove(o));
+    obstacles = [];
+
+    if (player.animDead) player.animDead.stop();
+    if (player.animRun)  player.animRun.play();
+}
+
+function die() {
+    isDead = true;
+    player.animRun.stop();
+    player.animDead.reset().play();
+
+    setTimeout(() => {
+        started = false;
+        document.getElementById("menu").style.display = "block";
+    }, 1200);
+}
+
+// ---------------------------------------------------
+// CONTROL
+// ---------------------------------------------------
+window.addEventListener("keydown", e => {
+    if (e.code === "Enter" && !started) startGame();
+    if (e.code === "Space" && started && !isDead) jump();
+});
+
 function jump() {
-    if (player.position.y <= 0.01 && !isDead) {
+    if (player.position.y <= 0.01) {
         velocityY = 0.18;
         player.animRun.stop();
         player.animJump.reset().play();
     }
 }
 
-window.addEventListener("keydown", (e) => {
-    if (e.code === "Space") jump();
-});
+// ---------------------------------------------------
+// SPAWN OBSTACLE
+// ---------------------------------------------------
+function spawnObstacle() {
+    if (!started || isDead) return;
 
+    let geo = new THREE.BoxGeometry(1,1,1);
+    let mat = new THREE.MeshStandardMaterial({ color:0xaa0000 });
+    let obs = new THREE.Mesh(geo,mat);
+    obs.position.set(10,0.5,0);
+
+    scene.add(obs);
+    obstacles.push(obs);
+}
+setInterval(spawnObstacle, 1800);
+
+// ---------------------------------------------------
+// GAME LOOP
+// ---------------------------------------------------
 function loop() {
     requestAnimationFrame(loop);
-
     if (mixer) mixer.update(clock.getDelta());
 
-    if (player && !isDead) {
+    if (started && !isDead) {
         velocityY -= 0.009;
         player.position.y += velocityY;
+
         if (player.position.y < 0) {
             player.position.y = 0;
             player.animJump.stop();
             player.animRun.play();
         }
 
-        obstacles.forEach((obs) => {
+        obstacles.forEach(obs => {
             obs.position.x -= 0.15;
 
             if (obs.position.x < -5) {
@@ -111,10 +144,8 @@ function loop() {
                 document.getElementById("score").innerText = score;
             }
 
-            if (!isDead && Math.abs(obs.position.x - player.position.x) < 1 && player.position.y < 1) {
-                isDead = true;
-                player.animRun.stop();
-                player.animDead.play();
+            if (Math.abs(obs.position.x - player.position.x) < 1 && player.position.y < 1) {
+                die();
             }
         });
     }
